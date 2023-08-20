@@ -2,7 +2,7 @@
 pragma solidity 0.8.20;
 
 import "forge-std/Test.sol";
-import {ERC1155Permit, SignatureExpired, SignerNotOwner} from "../src/ERC1155Permit.sol";
+import {ERC1155Permit, SignatureExpired, SignatureError} from "../src/ERC1155Permit.sol";
 import {SigUtils} from "./SigUtils.sol";
 
 contract ERC1155PermitTest is Test {
@@ -22,88 +22,55 @@ contract ERC1155PermitTest is Test {
         sigUtils = new SigUtils(erc1155Permit.DOMAIN_SEPARATOR());
     }
 
-    function test_Permit() public {
+    function _signPermit(
+        uint256 privateKey,
+        address _owner,
+        address _operator,
+        bool _approved,
+        uint256 _nonce,
+        uint256 _deadline
+    ) private view returns (bytes memory sig) {
         SigUtils.Permit memory permit = SigUtils.Permit({
-            owner: owner,
-            operator: operator,
-            approved: true,
-            nonce: 0,
-            deadline: 1 days
+            owner: _owner,
+            operator: _operator,
+            approved: _approved,
+            nonce: _nonce,
+            deadline: _deadline
         });
 
         bytes32 digest = sigUtils.getTypedDataHash(permit);
 
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerPrivateKey, digest);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(privateKey, digest);
 
-        bytes memory sig = abi.encodePacked(r, s, v);
+        sig = abi.encodePacked(r, s, v);
+    }
 
-        erc1155Permit.permit(
-            permit.owner,
-            permit.operator,
-            permit.approved,
-            permit.deadline,
-            sig
-        );
+    function test_Permit() public {
+        bytes memory sig = _signPermit(ownerPrivateKey, owner, operator, true, 0, 1 days);
+
+        erc1155Permit.permit(owner, operator, true, 1 days, sig);
 
         assertEq(erc1155Permit.isApprovedForAll(owner, operator), true);
         assertEq(erc1155Permit.nonces(owner), 1);
     }
 
     function test_PermitRevertsWhenDeadlineExpired() public {
-        SigUtils.Permit memory permit = SigUtils.Permit({
-            owner: owner,
-            operator: operator,
-            approved: true,
-            nonce: 0,
-            deadline: 1 days
-        });
+        bytes memory sig = _signPermit(ownerPrivateKey, owner, operator, true, 0, 1 days);
 
-        bytes32 digest = sigUtils.getTypedDataHash(permit);
-
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerPrivateKey, digest);
-
-        bytes memory sig = abi.encodePacked(r, s, v);
-
-        vm.warp(block.timestamp + 2 days); 
+        vm.warp(block.timestamp + 2 days);
 
         vm.expectRevert(SignatureExpired.selector);
 
-        erc1155Permit.permit(
-            permit.owner,
-            permit.operator,
-            permit.approved,
-            permit.deadline,
-            sig
-        );
-
+        erc1155Permit.permit(owner, operator, true, 1 days, sig);
     }
 
-    function test_PermitRevertsWhenSignerNotOwner() public {
-        SigUtils.Permit memory permit = SigUtils.Permit({
-            owner: owner,
-            operator: operator,
-            approved: true,
-            nonce: 0,
-            deadline: 1 days
-        });
+    function test_PermitRevertsWhenSignatureError() public {
+        uint256 otherPrivateKey = 5;
 
-        bytes32 digest = sigUtils.getTypedDataHash(permit);
+        bytes memory sig = _signPermit(otherPrivateKey, owner, operator, true, 0, 1 days);
 
-        uint256 otherSignerPrivateKey = 5;
+        vm.expectRevert(SignatureError.selector);
 
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(otherSignerPrivateKey, digest);
-
-        bytes memory sig = abi.encodePacked(r, s, v);
-
-        vm.expectRevert(SignerNotOwner.selector);
-
-        erc1155Permit.permit(
-            permit.owner,
-            permit.operator,
-            permit.approved,
-            permit.deadline,
-            sig
-        );
-
+        erc1155Permit.permit(owner, operator, true, 1 days, sig);
     }
 }

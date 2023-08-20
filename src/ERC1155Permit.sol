@@ -6,7 +6,7 @@ import {IERC1155Permit} from "./IERC1155Permit.sol";
 import {EIP712, ECDSA} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 
 error SignatureExpired();
-error SignerNotOwner();
+error SignatureError();
 
 contract ERC1155Permit is ERC1155, IERC1155Permit, EIP712 {
     mapping(address => uint256) public nonces;
@@ -19,14 +19,13 @@ contract ERC1155Permit is ERC1155, IERC1155Permit, EIP712 {
     function permit(address owner, address operator, bool approved, uint256 deadline, bytes memory sig) external {
         if (block.timestamp > deadline) revert SignatureExpired();
 
-        bytes32 structHash = keccak256(
-            abi.encode(PERMIT_TYPEHASH, owner, operator, approved, nonces[owner]++, deadline)
-        );
+        bytes32 structHash =
+            keccak256(abi.encode(PERMIT_TYPEHASH, owner, operator, approved, nonces[owner]++, deadline));
 
         bytes32 hash = _hashTypedDataV4(structHash);
         address signer = ECDSA.recover(hash, sig);
 
-        if (signer != owner) revert SignerNotOwner();
+        if (signer != owner) revert SignatureError();
 
         _setApprovalForAll(owner, operator, approved);
     }
